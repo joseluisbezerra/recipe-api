@@ -6,6 +6,6 @@ from django.urls import (
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('api/', include('recipe.apps.recipe.urls')),
     path('api/user/', include('recipe.apps.user.urls')),
-    path('api/recipe/', include('recipe.apps.recipe.urls')),
 ]
