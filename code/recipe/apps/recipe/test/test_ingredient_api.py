@@ -12,6 +12,8 @@ from recipe.apps.recipe.serializers import IngredientSerializer
 
 INGREDIENTS_URL = reverse('recipe:ingredient-list')
 
+User = get_user_model()
+
 
 class PublicIngredientsApiTests(TestCase):
     """Test the publically available ingredients API"""
@@ -31,7 +33,7 @@ class PrivateIngredientsAPITests(TestCase):
 
     def setUp(self):
         self.client = APIClient()
-        self.user = get_user_model().objects.create_user(
+        self.user = User.objects.create_user(
             'test@test.com',
             'testpass'
         )
@@ -63,7 +65,7 @@ class PrivateIngredientsAPITests(TestCase):
 
     def test_ingredients_limited_to_user(self):
         """Test that only ingredients for authenticated user are returned"""
-        user2 = get_user_model().objects.create_user(
+        user2 = User.objects.create_user(
             'other@test.com',
             'testpass'
         )

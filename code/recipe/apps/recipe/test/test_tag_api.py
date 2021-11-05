@@ -11,6 +11,8 @@ from rest_framework.test import APIClient
 
 TAGS_URL = reverse('recipe:tag-list')
 
+User = get_user_model()
+
 
 class PublicTagsAPITests(TestCase):
     """Test the public available tags API"""
@@ -29,7 +31,7 @@ class PrivateTagsApiTests(TestCase):
     """Test the authorized user tags API"""
 
     def setUp(self):
-        self.user = get_user_model().objects.create_user(
+        self.user = User.objects.create_user(
             'test@test.com',
             'password'
         )
@@ -55,7 +57,7 @@ class PrivateTagsApiTests(TestCase):
 
     def test_tags_limited_to_user(self):
         """Test that tags returned are for authenticated user"""
-        user2 = get_user_model().objects.create_user(
+        user2 = User.objects.create_user(
             'other@test.com',
             'testpass'
         )
