@@ -320,6 +320,28 @@ class CreateRecipeTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_recipe_with_title_that_already_exists(self):
+        Recipe.objects.create(
+            user=self.user,
+            title='Chocolate cheesecake',
+            time_minutes=20,
+            price=8.00
+        )
+
+        payload = {
+            'title': 'Chocolate cheesecake',
+            'time_minutes': 30,
+            'price': 5.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_create_recipe_with_invalid_time_minutes(self):
         payload = {
             'title': 'Chocolate cheesecake',
@@ -568,6 +590,29 @@ class UpdateRecipeTest(APITestCase):
     def test_update_recipe_with_invalid_title(self):
         payload = {
             'title': '',
+            'time_minutes': 30,
+            'price': 5.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_recipe_with_title_that_already_exists(self):
+        Recipe.objects.create(
+            user=self.user,
+            title='Chocolate cheesecake',
+            time_minutes=20,
+            price=8.00
+        )
+
+        payload = {
+            'title': 'Chocolate cheesecake',
             'time_minutes': 30,
             'price': 5.00
         }

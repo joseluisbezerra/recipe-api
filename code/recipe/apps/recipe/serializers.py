@@ -15,6 +15,18 @@ class TagSerializer(serializers.ModelSerializer):
         fields = ('id', 'name')
         read_only_fields = ('id',)
 
+    def validate_name(self, value):
+        if not (self.instance and value == self.instance.name):
+            if Tag.objects.filter(
+                name=value,
+                user=self.context['request'].user
+            ).exists():
+                raise serializers.ValidationError(
+                    "There is already a tag with this name registered."
+                )
+
+        return value
+
 
 class IngredientSerializer(serializers.ModelSerializer):
     """Serializer for an ingredient object"""
@@ -23,6 +35,18 @@ class IngredientSerializer(serializers.ModelSerializer):
         model = Ingredient
         fields = ('id', 'name')
         read_only_fields = ('id',)
+
+    def validate_name(self, value):
+        if not (self.instance and value == self.instance.name):
+            if Ingredient.objects.filter(
+                name=value,
+                user=self.context['request'].user
+            ).exists():
+                raise serializers.ValidationError(
+                    "There is already a ingredient with this name registered."
+                )
+
+        return value
 
 
 class RecipeSerializer(serializers.ModelSerializer):
@@ -65,6 +89,18 @@ class RecipeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 "Price cannot be negative"
             )
+
+        return value
+
+    def validate_title(self, value):
+        if not (self.instance and value == self.instance.title):
+            if Recipe.objects.filter(
+                title=value,
+                user=self.context['request'].user
+            ).exists():
+                raise serializers.ValidationError(
+                    "There is already a recipe with this title registered."
+                )
 
         return value
 

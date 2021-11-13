@@ -233,6 +233,22 @@ class CreateIngredientTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_ingredient_with_name_that_already_exists(self):
+        Ingredient.objects.create(
+            user=self.user,
+            name='Cabbage'
+        )
+
+        payload = {'name': 'Cabbage'}
+
+        response = self.client.post(
+            INGREDIENTS_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
 
 class UpdateIngredientTest(APITestCase):
     """ Test module for updating an existing ingredient record """
@@ -264,6 +280,23 @@ class UpdateIngredientTest(APITestCase):
 
     def test_invalid_update_ingredient(self):
         payload = {'name': ''}
+
+        url = detail_url(self.ingredient.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_ingredient_with_name_that_already_exists(self):
+        Ingredient.objects.create(
+            user=self.user,
+            name='Cabbage'
+        )
+
+        payload = {'name': 'Cabbage'}
 
         url = detail_url(self.ingredient.id)
         response = self.client.put(
