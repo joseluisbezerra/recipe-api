@@ -29,17 +29,20 @@ class RecipeSerializer(serializers.ModelSerializer):
     """Serialize a recipe"""
     ingredients = serializers.PrimaryKeyRelatedField(
         many=True,
-        queryset=Ingredient.objects.all()
+        queryset=Ingredient.objects.all(),
+        required=False
     )
     tags = serializers.PrimaryKeyRelatedField(
         many=True,
-        queryset=Tag.objects.all()
+        queryset=Tag.objects.all(),
+        required=False
     )
 
     class Meta:
         model = Recipe
         fields = (
             'id',
+            'image',
             'title',
             'ingredients',
             'tags',
@@ -49,17 +52,24 @@ class RecipeSerializer(serializers.ModelSerializer):
         )
         read_only_fields = ('id',)
 
+    def validate_time_minutes(self, value):
+        if value <= 0:
+            raise serializers.ValidationError(
+                "The time in minutes cannot be less than one"
+            )
+
+        return value
+
+    def validate_price(self, value):
+        if value < 0:
+            raise serializers.ValidationError(
+                "Price cannot be negative"
+            )
+
+        return value
+
 
 class RecipeDetailSerializer(RecipeSerializer):
     """Serialize a recipe detail"""
     ingredients = IngredientSerializer(many=True, read_only=True)
     tags = TagSerializer(many=True, read_only=True)
-
-
-class RecipeImageSerializer(serializers.ModelSerializer):
-    """Serializer for uploading images to recipes"""
-
-    class Meta:
-        model = Recipe
-        fields = ('id', 'image')
-        read_only_fields = ('id',)

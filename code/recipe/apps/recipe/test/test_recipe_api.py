@@ -1,14 +1,14 @@
 import tempfile
+import json
 import os
 
 from PIL import Image
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
 from django.urls import reverse
 
 from rest_framework import status
-from rest_framework.test import APIClient
+from rest_framework.test import APITestCase
 
 from recipe.apps.core.models import (
     Tag,
@@ -23,13 +23,7 @@ from recipe.apps.recipe.serializers import (
 
 
 RECIPES_URL = reverse('recipe:recipe-list')
-
 User = get_user_model()
-
-
-def image_upload_url(recipe_id):
-    """Return URL for recipe image upload"""
-    return reverse('recipe:recipe-upload-image', args=[recipe_id])
 
 
 def detail_url(recipe_id):
@@ -59,50 +53,56 @@ def sample_recipe(user, **params):
     return Recipe.objects.create(user=user, **defaults)
 
 
-class PublicRecipeApiTests(TestCase):
-    """Test unauthenticated recipe API access"""
+class PublicRecipesApiTests(APITestCase):
+    """Test the publically available recipes API"""
 
-    def setUp(self):
-        self.client = APIClient()
-
-    def test_required_auth(self):
-        """Test the authenticaiton is required"""
+    def test_get_all_recipes_without_authentication(self):
         response = self.client.get(RECIPES_URL)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
+    def test_create_recipe_without_authentication(self):
+        response = self.client.post(RECIPES_URL)
 
-class PrivateRecipeApiTests(TestCase):
-    """Test authenticated recipe API access"""
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_get_recipe_without_authentication(self):
+        url = detail_url(99)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_update_recipe_without_authentication(self):
+        url = detail_url(99)
+        response = self.client.put(url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_delete_recipe_without_authentication(self):
+        url = detail_url(99)
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+class GetRecipesTest(APITestCase):
+    """Test module for GET all recipes API"""
 
     def setUp(self):
-        self.client = APIClient()
         self.user = User.objects.create_user(
             'test@test.com',
             'testpass'
         )
+
         self.client.force_authenticate(self.user)
 
-    def test_retrieve_recipes(self):
-        """Test retrieving list of recipes"""
-        sample_recipe(user=self.user)
-        sample_recipe(user=self.user)
-
-        response = self.client.get(RECIPES_URL)
-
-        recipes = Recipe.objects.all().order_by('-id')
-        serializer = RecipeSerializer(recipes, many=True)
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.data, serializer.data)
-
-    def test_recipes_limited_to_user(self):
-        """Test retrieving recipes for user"""
-        user2 = User.objects.create_user(
+    def test_get_all_user_recipes(self):
+        user_2 = User.objects.create_user(
             'other@test.com',
             'password123'
         )
-        sample_recipe(user=user2)
+
+        sample_recipe(user=user_2)
         sample_recipe(user=self.user)
 
         response = self.client.get(RECIPES_URL)
@@ -114,9 +114,63 @@ class PrivateRecipeApiTests(TestCase):
         self.assertEqual(len(response.data), 1)
         self.assertEqual(response.data, serializer.data)
 
-    def test_view_recipe_detail(self):
-        """Test viewing a recipe detail"""
+    def test_filter_recipes_by_tags(self):
+        recipe = sample_recipe(user=self.user, title='Thai vegetable curry')
+        recipe_2 = sample_recipe(user=self.user, title='Aubergine with tahini')
+        recipe_3 = sample_recipe(user=self.user, title='Fish and chips')
+
+        tag = sample_tag(user=self.user, name='Vegan')
+        tag_2 = sample_tag(user=self.user, name='Vegetarian')
+
+        recipe.tags.add(tag)
+        recipe_2.tags.add(tag_2)
+
+        response = self.client.get(
+            RECIPES_URL,
+            {'tags': f'{tag.id},{tag_2.id}'}
+        )
+
+        serializer = RecipeSerializer(recipe_3)
+
+        self.assertEqual(len(response.data), 2)
+        self.assertNotIn(serializer.data, response.data)
+
+    def test_filter_recipes_by_ingredients(self):
+        recipe = sample_recipe(user=self.user, title='Posh beans on toast')
+        recipe_2 = sample_recipe(user=self.user, title='Chicken cacciatore')
+        recipe_3 = sample_recipe(user=self.user, title='Steak and mushrooms')
+
+        ingredient = sample_ingredient(user=self.user, name='Feta cheese')
+        ingredient_2 = sample_ingredient(user=self.user, name='Chicken')
+
+        recipe.ingredients.add(ingredient)
+        recipe_2.ingredients.add(ingredient_2)
+
+        response = self.client.get(
+            RECIPES_URL,
+            {'ingredients': f'{ingredient.id},{ingredient_2.id}'}
+        )
+
+        serializer = RecipeSerializer(recipe_3)
+
+        self.assertEqual(len(response.data), 2)
+        self.assertNotIn(serializer.data, response.data)
+
+
+class GetRecipeTest(APITestCase):
+    """Test module for GET single recipe API"""
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            'test@test.com',
+            'testpass'
+        )
+
+        self.client.force_authenticate(self.user)
+
+    def test_get_valid_recipe(self):
         recipe = sample_recipe(user=self.user)
+
         recipe.tags.add(sample_tag(user=self.user))
         recipe.ingredients.add(sample_ingredient(user=self.user))
 
@@ -126,191 +180,536 @@ class PrivateRecipeApiTests(TestCase):
         serializer = RecipeDetailSerializer(recipe)
 
         self.assertEqual(response.data, serializer.data)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_get_recipe_from_another_user(self):
+        user_2 = User.objects.create_user(
+            'other@test.com',
+            'testpass'
+        )
+
+        recipe = sample_recipe(user=user_2)
+
+        url = detail_url(recipe.id)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_get_invalid_recipe(self):
+        url = detail_url(99)
+        response = self.client.get(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+
+class CreateRecipeTest(APITestCase):
+    """ Test module for inserting a new recipe """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            'test@test.com',
+            'testpass'
+        )
+
+        self.client.force_authenticate(self.user)
 
     def test_create_basic_recipe(self):
-        """Test creating recipe"""
         payload = {
             'title': 'Chocolate cheesecake',
             'time_minutes': 30,
             'price': 5.00
         }
 
-        response = self.client.post(RECIPES_URL, payload)
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
 
-        recipe = Recipe.objects.get(id=response.data['id'])
+        exists = Recipe.objects.filter(
+            user=self.user,
+            title=payload['title']
+        ).exists()
 
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        for key in payload.keys():
-            self.assertEqual(payload[key], getattr(recipe, key))
+        self.assertTrue(exists)
 
     def test_create_recipe_with_tags(self):
-        """Test creating a recipe with tags"""
-        tag1 = sample_tag(user=self.user, name='Vegan')
-        tag2 = sample_tag(user=self.user, name='Dessert')
+        tag = sample_tag(user=self.user, name='Vegan')
+        tag_2 = sample_tag(user=self.user, name='Dessert')
+
         payload = {
             'title': 'Avocado lime cheesecake',
-            'tags': [tag1.id, tag2.id],
+            'tags': [tag.id, tag_2.id],
             'time_minutes': 60,
             'price': 20.00
         }
 
-        response = self.client.post(RECIPES_URL, payload)
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
 
         recipe = Recipe.objects.get(id=response.data['id'])
         tags = recipe.tags.all()
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(tags.count(), 2)
-        self.assertIn(tag1, tags)
-        self.assertIn(tag2, tags)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_create_recipe_with_ingredients(self):
-        """Test creating recipe with ingredients"""
-        ingredient1 = sample_ingredient(user=self.user, name='Prawns')
-        ingredient2 = sample_ingredient(user=self.user, name='Ginger')
+        ingredient = sample_ingredient(user=self.user, name='Prawns')
+        ingredient_2 = sample_ingredient(user=self.user, name='Ginger')
+
         payload = {
             'title': 'Thai prawn red curry',
-            'ingredients': [ingredient1.id, ingredient2.id],
+            'ingredients': [ingredient.id, ingredient_2.id],
             'time_minutes': 20,
             'price': 7.00
         }
 
-        response = self.client.post(RECIPES_URL, payload)
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
 
         recipe = Recipe.objects.get(id=response.data['id'])
         ingredients = recipe.ingredients.all()
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ingredients.count(), 2)
-        self.assertIn(ingredient1, ingredients)
-        self.assertIn(ingredient2, ingredients)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_recipe_with_image(self):
+        with tempfile.NamedTemporaryFile(suffix='.jpg') as ntf:
+            img = Image.new('RGB', (10, 10))
+            img.save(ntf, format='JPEG')
+            ntf.seek(0)
+
+            payload = {
+                'title': 'Thai prawn red curry',
+                'image': ntf,
+                'time_minutes': 20,
+                'price': 7.00
+            }
+
+            response = self.client.post(
+                RECIPES_URL,
+                data=payload,
+                format='multipart'
+            )
+
+        recipe = Recipe.objects.get(id=response.data.get('id'))
+
+        self.assertIn('image', response.data)
+        self.assertTrue(os.path.exists(recipe.image.path))
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_recipe_with_invalid_title(self):
+        payload = {
+            'title': '',
+            'time_minutes': 30,
+            'price': 5.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_recipe_with_invalid_time_minutes(self):
+        payload = {
+            'title': 'Chocolate cheesecake',
+            'time_minutes': -5,
+            'price': 5.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_recipe_with_invalid_price(self):
+        payload = {
+            'title': 'Chocolate cheesecake',
+            'time_minutes': 30,
+            'price': -6
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_recipe_with_invalid_tags(self):
+        tag = sample_tag(user=self.user, name='Vegan')
+
+        payload = {
+            'title': 'Avocado lime cheesecake',
+            'tags': [tag.id, 99],
+            'time_minutes': 60,
+            'price': 20.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_recipe_with_invalid_ingredients(self):
+        ingredient = sample_ingredient(user=self.user, name='Prawns')
+
+        payload = {
+            'title': 'Thai prawn red curry',
+            'ingredients': [ingredient.id, 99],
+            'time_minutes': 20,
+            'price': 7.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_recipe_with_invalid_image(self):
+        payload = {
+            'title': 'Thai prawn red curry',
+            'image': 'notimage',
+            'time_minutes': 20,
+            'price': 7.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=payload,
+            format='multipart'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class UpdateRecipeTest(APITestCase):
+    """ Test module for updating an existing recipe record """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            'test@test.com',
+            'testpass'
+        )
+
+        self.recipe = sample_recipe(user=self.user)
+        self.recipe.tags.add(sample_tag(user=self.user))
+        self.recipe.ingredients.add(sample_ingredient(user=self.user))
+
+        self.client.force_authenticate(self.user)
+
+    def tearDown(self):
+        self.recipe.image.delete()
+
+    def test_update_recipe(self):
+        payload = {
+            'title': 'Spaghetti carbonara',
+            'time_minutes': 25,
+            'price': 5.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.recipe.refresh_from_db()
+        tags = self.recipe.tags.all()
+        ingredients = self.recipe.ingredients.all()
+
+        self.assertEqual(self.recipe.title, payload['title'])
+        self.assertEqual(self.recipe.price, payload['price'])
+        self.assertEqual(self.recipe.time_minutes, payload['time_minutes'])
+        self.assertEqual(tags.count(), 1)
+        self.assertEqual(ingredients.count(), 1)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_partial_update_recipe(self):
-        """Test updating a recipe with patch"""
-        recipe = sample_recipe(user=self.user)
-        recipe.tags.add(sample_tag(user=self.user))
         new_tag = sample_tag(user=self.user, name='Curry')
 
-        payload = {'title': 'Chicken tikka', 'tags': [new_tag.id]}
-        url = detail_url(recipe.id)
-        self.client.patch(url, payload)
+        payload = {
+            'title': 'Chicken tikka',
+            'tags': [new_tag.id]
+        }
 
-        recipe.refresh_from_db()
-        tags = recipe.tags.all()
+        url = detail_url(self.recipe.id)
+        response = self.client.patch(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
 
-        self.assertEqual(recipe.title, payload['title'])
-        self.assertEqual(len(tags), 1)
+        self.recipe.refresh_from_db()
+        tags = self.recipe.tags.all()
+
         self.assertIn(new_tag, tags)
+        self.assertEqual(self.recipe.title, payload['title'])
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_full_update_recipe(self):
-        """Test updating a recipe with put"""
-        recipe = sample_recipe(user=self.user)
-        recipe.tags.add(sample_tag(user=self.user))
+    def test_update_recipe_with_tags(self):
+        tag = sample_tag(user=self.user, name='Vegan')
+        tag_2 = sample_tag(user=self.user, name='Dessert')
+
+        payload = {
+            'title': 'Avocado lime cheesecake',
+            'tags': [tag.id, tag_2.id],
+            'time_minutes': 60,
+            'price': 20.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.recipe.refresh_from_db()
+        tags = self.recipe.tags.all()
+
+        self.assertEqual(tags.count(), 2)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_update_recipe_with_ingredients(self):
+        ingredient = sample_ingredient(user=self.user, name='Prawns')
+        ingredient_2 = sample_ingredient(user=self.user, name='Ginger')
+
+        payload = {
+            'title': 'Thai prawn red curry',
+            'ingredients': [ingredient.id, ingredient_2.id],
+            'time_minutes': 20,
+            'price': 7.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.recipe.refresh_from_db()
+        ingredients = self.recipe.ingredients.all()
+
+        self.assertEqual(ingredients.count(), 2)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_update_recipe_with_image(self):
+        with tempfile.NamedTemporaryFile(suffix='.jpg') as ntf:
+            img = Image.new('RGB', (10, 10))
+            img.save(ntf, format='JPEG')
+            ntf.seek(0)
+
+            payload = {
+                'title': 'Thai prawn red curry',
+                'image': ntf,
+                'time_minutes': 20,
+                'price': 7.00
+            }
+
+            url = detail_url(self.recipe.id)
+            response = self.client.put(
+                url,
+                data=payload,
+                format='multipart'
+            )
+
+        self.recipe.refresh_from_db()
+
+        self.assertIn('image', response.data)
+        self.assertTrue(os.path.exists(self.recipe.image.path))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    def test_update_recipe_from_another_user(self):
+        user_2 = User.objects.create_user(
+            'other@test.com',
+            'testpass'
+        )
+
+        recipe = sample_recipe(user=user_2)
 
         payload = {
             'title': 'Spaghetti carbonara',
             'time_minutes': 25,
             'price': 5.00
         }
+
         url = detail_url(recipe.id)
-        self.client.put(url, payload)
-
-        recipe.refresh_from_db()
-        tags = recipe.tags.all()
-
-        self.assertEqual(recipe.title, payload['title'])
-        self.assertEqual(recipe.time_minutes, payload['time_minutes'])
-        self.assertEqual(recipe.price, payload['price'])
-        self.assertEqual(len(tags), 0)
-
-
-class RecipeImageUploadTests(TestCase):
-
-    def setUp(self):
-        self.client = APIClient()
-        self.user = User.objects.create_user(
-            'user@test.com',
-            'testpass'
-        )
-        self.client.force_authenticate(self.user)
-        self.recipe = sample_recipe(user=self.user)
-
-    def tearDown(self):
-        self.recipe.image.delete()
-
-    def test_upload_image_to_recipe(self):
-        """Test uploading an image to recipe"""
-        url = image_upload_url(self.recipe.id)
-
-        with tempfile.NamedTemporaryFile(suffix='.jpg') as ntf:
-            img = Image.new('RGB', (10, 10))
-            img.save(ntf, format='JPEG')
-            ntf.seek(0)
-
-            response = self.client.post(
-                url,
-                {'image': ntf},
-                format='multipart'
-            )
-
-        self.recipe.refresh_from_db()
-
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIn('image', response.data)
-        self.assertTrue(os.path.exists(self.recipe.image.path))
-
-    def test_upload_image_bad_request(self):
-        """Test uploading an invalid image"""
-        url = image_upload_url(self.recipe.id)
-
-        response = self.client.post(
+        response = self.client.put(
             url,
-            {'image': 'notimage'},
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_update_recipe_with_invalid_title(self):
+        payload = {
+            'title': '',
+            'time_minutes': 30,
+            'price': 5.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_recipe_with_invalid_time_minutes(self):
+        payload = {
+            'title': 'Chocolate cheesecake',
+            'time_minutes': -5,
+            'price': 5.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_recipe_with_invalid_price(self):
+        payload = {
+            'title': 'Chocolate cheesecake',
+            'time_minutes': 30,
+            'price': -6
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_recipe_with_invalid_tags(self):
+        tag = sample_tag(user=self.user, name='Vegan')
+
+        payload = {
+            'title': 'Avocado lime cheesecake',
+            'tags': [tag.id, 99],
+            'time_minutes': 60,
+            'price': 20.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_recipe_with_invalid_ingredients(self):
+        ingredient = sample_ingredient(user=self.user, name='Prawns')
+
+        payload = {
+            'title': 'Thai prawn red curry',
+            'ingredients': [ingredient.id, 99],
+            'time_minutes': 20,
+            'price': 7.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_recipe_with_invalid_image(self):
+        payload = {
+            'title': 'Thai prawn red curry',
+            'image': 'notimage',
+            'time_minutes': 20,
+            'price': 7.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=payload,
             format='multipart'
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_filter_recipes_by_tags(self):
-        """Test returning recipes with specific tags"""
-        recipe1 = sample_recipe(user=self.user, title='Thai vegetable curry')
-        recipe2 = sample_recipe(user=self.user, title='Aubergine with tahini')
-        tag1 = sample_tag(user=self.user, name='Vegan')
-        tag2 = sample_tag(user=self.user, name='Vegetarian')
-        recipe1.tags.add(tag1)
-        recipe2.tags.add(tag2)
-        recipe3 = sample_recipe(user=self.user, title='Fish and chips')
 
-        response = self.client.get(
-            RECIPES_URL,
-            {'tags': f'{tag1.id},{tag2.id}'}
+class DeleteRecipeTest(APITestCase):
+    """ Test module for deleting an existing recipe record """
+
+    def setUp(self):
+        self.user = User.objects.create_user(
+            'test@test.com',
+            'testpass'
         )
 
-        serializer1 = RecipeSerializer(recipe1)
-        serializer2 = RecipeSerializer(recipe2)
-        serializer3 = RecipeSerializer(recipe3)
-        self.assertIn(serializer1.data, response.data)
-        self.assertIn(serializer2.data, response.data)
-        self.assertNotIn(serializer3.data, response.data)
+        self.client.force_authenticate(self.user)
 
-    def test_filter_recipes_by_ingredients(self):
-        """Test returning recipes with specific ingredients"""
-        recipe1 = sample_recipe(user=self.user, title='Posh beans on toast')
-        recipe2 = sample_recipe(user=self.user, title='Chicken cacciatore')
-        ingredient1 = sample_ingredient(user=self.user, name='Feta cheese')
-        ingredient2 = sample_ingredient(user=self.user, name='Chicken')
-        recipe1.ingredients.add(ingredient1)
-        recipe2.ingredients.add(ingredient2)
-        recipe3 = sample_recipe(user=self.user, title='Steak and mushrooms')
+    def test_valid_delete_recipe(self):
+        recipe = sample_recipe(user=self.user)
+        recipe.tags.add(sample_tag(user=self.user))
+        recipe.ingredients.add(sample_ingredient(user=self.user))
 
-        response = self.client.get(
-            RECIPES_URL,
-            {'ingredients': f'{ingredient1.id},{ingredient2.id}'}
+        url = detail_url(recipe.id)
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+
+    def test_invalid_delete_recipe(self):
+        url = detail_url(99)
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_delete_recipe_from_another_user(self):
+        user_2 = User.objects.create_user(
+            'other@test.com',
+            'testpass'
         )
 
-        serializer1 = RecipeSerializer(recipe1)
-        serializer2 = RecipeSerializer(recipe2)
-        serializer3 = RecipeSerializer(recipe3)
-        self.assertIn(serializer1.data, response.data)
-        self.assertIn(serializer2.data, response.data)
-        self.assertNotIn(serializer3.data, response.data)
+        recipe = sample_recipe(user=user_2)
+        recipe.tags.add(sample_tag(user=user_2))
+        recipe.ingredients.add(sample_ingredient(user=user_2))
+
+        url = detail_url(recipe.id)
+
+        response = self.client.delete(url)
+
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
