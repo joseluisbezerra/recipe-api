@@ -390,12 +390,58 @@ class CreateRecipeTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_create_recipe_with_tags_from_another_user(self):
+        user_2 = User.objects.create_user(
+            'other@test.com',
+            'testpass'
+        )
+
+        tag = sample_tag(user=user_2, name='Vegan')
+
+        payload = {
+            'title': 'Avocado lime cheesecake',
+            'tags': [tag.id],
+            'time_minutes': 60,
+            'price': 20.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_create_recipe_with_invalid_ingredients(self):
         ingredient = sample_ingredient(user=self.user, name='Prawns')
 
         payload = {
             'title': 'Thai prawn red curry',
             'ingredients': [ingredient.id, 99],
+            'time_minutes': 20,
+            'price': 7.00
+        }
+
+        response = self.client.post(
+            RECIPES_URL,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_create_recipe_with_ingredients_from_another_user(self):
+        user_2 = User.objects.create_user(
+            'other@test.com',
+            'testpass'
+        )
+
+        ingredient = sample_ingredient(user=user_2, name='Prawns')
+
+        payload = {
+            'title': 'Thai prawn red curry',
+            'ingredients': [ingredient.id],
             'time_minutes': 20,
             'price': 7.00
         }
@@ -677,12 +723,60 @@ class UpdateRecipeTest(APITestCase):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_update_recipe_with_tags_from_another_user(self):
+        user_2 = User.objects.create_user(
+            'other@test.com',
+            'testpass'
+        )
+
+        tag = sample_tag(user=user_2, name='Vegan')
+
+        payload = {
+            'title': 'Avocado lime cheesecake',
+            'tags': [tag.id],
+            'time_minutes': 60,
+            'price': 20.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
     def test_update_recipe_with_invalid_ingredients(self):
         ingredient = sample_ingredient(user=self.user, name='Prawns')
 
         payload = {
             'title': 'Thai prawn red curry',
             'ingredients': [ingredient.id, 99],
+            'time_minutes': 20,
+            'price': 7.00
+        }
+
+        url = detail_url(self.recipe.id)
+        response = self.client.put(
+            url,
+            data=json.dumps(payload),
+            content_type='application/json'
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_update_recipe_with_ingredients_from_another_user(self):
+        user_2 = User.objects.create_user(
+            'other@test.com',
+            'testpass'
+        )
+
+        ingredient = sample_ingredient(user=user_2, name='Prawns')
+
+        payload = {
+            'title': 'Thai prawn red curry',
+            'ingredients': [ingredient.id],
             'time_minutes': 20,
             'price': 7.00
         }

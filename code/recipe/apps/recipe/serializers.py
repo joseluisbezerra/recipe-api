@@ -7,6 +7,58 @@ from recipe.apps.core.models import (
 )
 
 
+class IngredientField(serializers.RelatedField):
+    def to_representation(self, value):
+        return value.id
+
+    def to_internal_value(self, data):
+
+        if not (
+            isinstance(data, int) or isinstance(data, str) and data.isnumeric()
+        ):
+            raise serializers.ValidationError(
+                'Incorrect type. Expected pk value, received {}.'.format(
+                    type(data).__name__
+                )
+            )
+
+        try:
+            return Ingredient.objects.get(
+                id=data,
+                user=self.context['request'].user
+            )
+        except Ingredient.DoesNotExist:
+            raise serializers.ValidationError(
+                f'Invalid pk \"{data}\" - object does not exist.'
+            )
+
+
+class TagField(serializers.RelatedField):
+    def to_representation(self, value):
+        return value.id
+
+    def to_internal_value(self, data):
+
+        if not (
+            isinstance(data, int) or isinstance(data, str) and data.isnumeric()
+        ):
+            raise serializers.ValidationError(
+                'Incorrect type. Expected pk value, received {}.'.format(
+                    type(data).__name__
+                )
+            )
+
+        try:
+            return Tag.objects.get(
+                id=data,
+                user=self.context['request'].user
+            )
+        except Tag.DoesNotExist:
+            raise serializers.ValidationError(
+                f'Invalid pk \"{data}\" - object does not exist.'
+            )
+
+
 class TagSerializer(serializers.ModelSerializer):
     """Serializer for tag object"""
 
@@ -51,12 +103,12 @@ class IngredientSerializer(serializers.ModelSerializer):
 
 class RecipeSerializer(serializers.ModelSerializer):
     """Serialize a recipe"""
-    ingredients = serializers.PrimaryKeyRelatedField(
+    ingredients = IngredientField(
         many=True,
         queryset=Ingredient.objects.all(),
         required=False
     )
-    tags = serializers.PrimaryKeyRelatedField(
+    tags = TagField(
         many=True,
         queryset=Tag.objects.all(),
         required=False
